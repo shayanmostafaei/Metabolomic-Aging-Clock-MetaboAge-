@@ -1,6 +1,6 @@
 # MetaboAge: Metabolomic Aging Clock
 
-This repository contains the code and workflow for constructing the Metabolomic Aging Clock (MetaboAge) using 184 NMR-based metabolic features from the UK Biobank.
+This repository contains the code and workflow for constructing the Metabolomic Aging Clock (MetaboAge) using 184 NMR-based metabolic features and Stacked ensemble models in the UK Biobank.
 
 ## Overview
 
