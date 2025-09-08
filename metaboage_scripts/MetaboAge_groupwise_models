@@ -1,0 +1,44 @@
+# Age/sex subgroup modeling 
+data_pred$age_group <- cut(data_pred$age, 
+                           breaks = c(-Inf, 49.99, 59.99, Inf), 
+                           labels = c("Under 50", "50-59", "60 and older"), 
+                           right = FALSE)
+
+# Split the data by age group and sex
+age_sex_groups <- split(data_pred, 
+                        list(data_pred$age_group, data_pred$sex))
+
+# Set up a multi-panel plot (2 rows and 3 columns to fit 6 groups on one page)
+par(mfrow = c(2, 3))  # 2 rows, 3 columns (adjust based on the number of groups)
+
+# Loop through each group and create a scatter plot
+for (group in names(age_sex_groups)) {
+  group_data <- age_sex_groups[[group]]
+  
+  # Calculate correlation
+  correlation <- cor(group_data$age, group_data$predicted_age)  # Changed 'MetaboAge' to 'predicted_age'
+  
+  # Calculate R-squared
+  r_squared <- correlation^2
+  
+  # Calculate RMSE (Root Mean Square Error)
+  rmse <- sqrt(mean((group_data$age - group_data$predicted_age)^2))  # Changed 'MetaboAge' to 'predicted_age'
+  
+  # Calculate MAE (Mean Absolute Error)
+  mae <- mean(abs(group_data$age - group_data$predicted_age))  # Changed 'MetaboAge' to 'predicted_age'
+  
+  # Create scatter plot for the group
+  plot(group_data$age, group_data$predicted_age,
+       xlab = "Actual Age",
+       ylab = "Predicted Age (MetaboAge)",  # Title adjusted to reflect predicted age
+       main = paste("Group:", group, "\n",
+                    "Correlation:", round(correlation, 2),
+                    "| R-squared:", round(r_squared, 2),
+                    "| MAE:", round(mae, 2),
+                    "| RMSE:", round(rmse, 2)),
+       pch = 19, col = "green", cex = 0.6)  # Green color for points
+  
+  # Add a reference line (ideal case where predicted = actual)
+  abline(0, 1, col = "red", lwd = 2)
+}
+
