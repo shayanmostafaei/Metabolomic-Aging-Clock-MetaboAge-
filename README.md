@@ -1,6 +1,6 @@
 # MetaboAge: Metabolomic Aging Clock
 
-This repository contains the code and workflow for constructing the Metabolomic Aging Clock (MetaboAge) using 184 NMR-based metabolic features and Stacked ensemble models in the UK Biobank.
+This repository contains the code and workflow for constructing the Metabolomic Aging Clock (**MetaboAge**) using **184 NMR-based metabolic features** and **Stacked Ensemble models** in the UK Biobank.
 
 ## Overview
 
@@ -8,6 +8,7 @@ This repository contains the code and workflow for constructing the Metabolomic 
 - **Missing Value Imputation**: k-Nearest Neighbors (k=10).
 - **Outlier Detection**: Mahalanobis distance in PCA space.
 - **Modeling**: Stacked ensemble (XGBoost, Random Forest, Decision Tree) with Elastic Net Regression as a meta-learner.
+- **Sex-wise Modeling**: Separate models for Men and Women, addressing sex-specific metabolic aging rates.
 - **Subgroup Modeling**: Separate models for age (Under 50, 50-59, 60 and older) and sex groups. 
 
 ## Files
@@ -16,6 +17,7 @@ This repository contains the code and workflow for constructing the Metabolomic 
 - `MetaboAge_imputation.R`: KNN imputation for missing values.
 - `MetaboAge_outlier_detection.R`: Outlier detection and exclusion.
 - `MetaboAge_stacked_model.R`: Main model training and evaluation.
+- `MetaboAge_sexwise_models.R`**: **Dedicated script for training and evaluating MetaboAge separately for Women and Men.
 - `MetaboAge_groupwise_models.R`: Age/sex subgroup modeling.
 - `README.md`: This file.
 - `LICENSE`: License
@@ -24,7 +26,7 @@ This repository contains the code and workflow for constructing the Metabolomic 
 
 1. Prepare your metabolomics data in R.
 2. Run the scripts in order as listed above.
-3. Follow instructions in each script for details.
+3. ollow the instructions and comments in each script for detailed steps and configuration.
 
 ## Reference
 
