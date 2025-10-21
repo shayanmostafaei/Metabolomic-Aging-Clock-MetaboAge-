@@ -15,8 +15,7 @@ This repository contains the code and workflow for constructing the Metabolomic 
 - `MetaboAge_feature_selection.R`: Feature selection and preprocessing.
 - `MetaboAge_imputation.R`: KNN imputation for missing values.
 - `MetaboAge_outlier_detection.R`: Outlier detection and exclusion.
-- `MetaboAge_stacked_model.R`: Main model training and evaluation.
-- `MetaboAge_sexwise_models.R`**: **Dedicated script for training and evaluating MetaboAge separately for Women and Men.
+- `MetaboAge_stacked_model.R`: Main model training and evaluation separately for Women and Men.
 - `README.md`: This file.
 - `LICENSE`: License
 
