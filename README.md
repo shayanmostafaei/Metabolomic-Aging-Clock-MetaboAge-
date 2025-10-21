@@ -7,9 +7,8 @@ This repository contains the code and workflow for constructing the Metabolomic 
 - **Normalization**: Box-Cox transformation to address skewed distributions.
 - **Missing Value Imputation**: k-Nearest Neighbors (k=10).
 - **Outlier Detection**: Mahalanobis distance in PCA space.
-- **Modeling**: Stacked ensemble (XGBoost, Random Forest, Decision Tree) with Elastic Net Regression as a meta-learner.
-- **Sex-wise Modeling**: Separate models for Men and Women, addressing sex-specific metabolic aging rates.
-- **Subgroup Modeling**: Separate models for age (Under 50, 50-59, 60 and older) and sex groups. 
+- **Modeling**: Stacked ensemble (XGBoost, LightGBM, CatBoost) with Elastic Net (α = 0.5) Regression as a meta-learner.
+- **Sex-wise Modeling**: Separate models for Men and Women, addressing sex-specific metabolic aging rates. 
 
 ## Files
 
@@ -18,7 +17,6 @@ This repository contains the code and workflow for constructing the Metabolomic 
 - `MetaboAge_outlier_detection.R`: Outlier detection and exclusion.
 - `MetaboAge_stacked_model.R`: Main model training and evaluation.
 - `MetaboAge_sexwise_models.R`**: **Dedicated script for training and evaluating MetaboAge separately for Women and Men.
-- `MetaboAge_groupwise_models.R`: Age/sex subgroup modeling.
 - `README.md`: This file.
 - `LICENSE`: License
 
@@ -26,7 +24,14 @@ This repository contains the code and workflow for constructing the Metabolomic 
 
 1. Prepare your metabolomics data in R.
 2. Run the scripts in order as listed above.
-3. ollow the instructions and comments in each script for detailed steps and configuration.
+3. Follow the instructions and comments in each script for detailed steps and configuration.
+
+## Sensitivity Analysis
+
+1. Compared stacked ensemble vs. single models (XGBoost, LightGBM, CatBoost).
+2. Stacked ensemble consistently achieved highest correlation and lowest RMSE/MAE across sexes.
+3. Details and results are provided in Table S1 of the manuscript. 
+
 
 ## Reference
 
