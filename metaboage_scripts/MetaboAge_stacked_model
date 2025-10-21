@@ -1,263 +1,157 @@
-# ######################################################################################
-# ## MetaboAge: Sex-Stratified XGBoost/LightGBM/CatBoost Stacked Ensemble Model
-# ######################################################################################
-
-library(dplyr)
-library(impute)    # For impute.knn
-library(caret)     # General ML utilities
-library(xgboost)   # Base Learner 1
-library(lightgbm)  # Base Learner 2
-library(catboost)  # Base Learner 3 
-library(glmnet)    # Meta-Learner (Elastic Net)
-library(Metrics)   # For RMSE, MAE
-library(haven)     # For handling factor levels
-library(ggplot2)   # For visualization
+#######################################################################################
+## MetaboAge: Sex-Stratified XGBoost / LightGBM / CatBoost Stacked Ensemble Model
+## Author: Shayan Mostafaei  
+## GitHub: https://github.com/shayanmostafaei/Metabolomic-Aging-Clock-MetaboAge- 
+#######################################################################################
+# ---- 0) Setup ----
+required_pkgs <- c("dplyr","impute","caret","xgboost","lightgbm","catboost",
+                   "glmnet","Metrics","haven","ggplot2","tidyr","tibble")
+for (pkg in required_pkgs) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    if(pkg=="catboost") {
+      message("CatBoost requires manual installation: https://catboost.ai/docs/installation/r-installation.html")
+    } else install.packages(pkg)
+  }
+  suppressPackageStartupMessages(library(pkg, character.only = TRUE))
+}
 
 set.seed(123)
 
-# ----------------------------------------------------------------------
-# 0. Data Preparation (Assumes 'data' is the input dataframe)
-# ----------------------------------------------------------------------
-
-# Convert sex to factor safely
-if(exists("data") && !is.null(data) && "sex" %in% names(data)){
-    data_ml <- data %>% filter(!is.na(age))
-    data_ml$sex <- haven::as_factor(data_ml$sex) %>% droplevels()
-} else {
-    stop("Input 'data' object not found or missing 'sex'/'age' column.")
-}
-
-
-# Prepare feature matrix: numeric columns only (exclude f.eid, sex, age)
-feature_cols <- setdiff(names(data_ml), c("f.eid", "sex", "age"))
+# ---- 1) Data Preparation ----
+if(!exists("data") || !"sex" %in% names(data) || !"age" %in% names(data)) stop("Input 'data' missing required columns.")
+data_ml <- data %>% filter(!is.na(age)) %>% dplyr::mutate(sex = haven::as_factor(sex) %>% droplevels())
+feature_cols <- setdiff(names(data_ml), c("f.eid","sex","age"))
 safe_names <- make.names(feature_cols)
 names(data_ml)[match(feature_cols, names(data_ml))] <- safe_names
 
-# Impute missing numeric values using KNN
+# Impute numeric metabolite features using KNN
 data_numeric <- as.data.frame(lapply(data_ml[, safe_names], as.numeric))
 imputed <- impute::impute.knn(as.matrix(data_numeric), k = 10)
 data_imputed <- as.data.frame(imputed$data)
 names(data_imputed) <- safe_names
-
-# Add back identifiers and target variables
 data_imputed$f.eid <- as.character(data_ml$f.eid)
 data_imputed$sex   <- data_ml$sex
 data_imputed$age   <- data_ml$age
 
-# ----------------------------------------------------------------------
-# Helper: metrics function
-# ----------------------------------------------------------------------
+# ---- 2) Metrics function ----
 calc_metrics <- function(truth, pred){
-    ss_res <- sum((truth - pred)^2)
-    ss_tot <- sum((truth - mean(truth))^2)
-    r_squared <- ifelse(ss_tot == 0, NA, 1 - ss_res/ss_tot)
-    corr <- ifelse(length(truth) > 1, cor(truth, pred), NA)
-    rmse_v <- Metrics::rmse(truth, pred)
-    mae_v  <- Metrics::mae(truth, pred)
-    data.frame(R_Squared = r_squared, Correlation = corr, RMSE = rmse_v, MAE = mae_v)
+  valid_idx <- !is.na(pred) & !is.na(truth)
+  truth <- truth[valid_idx]; pred <- pred[valid_idx]
+  if(length(truth)<2) return(data.frame(R_Squared=NA, Correlation=NA, RMSE=NA, MAE=NA))
+  ss_res <- sum((truth-pred)^2); ss_tot <- sum((truth-mean(truth))^2)
+  data.frame(
+    R_Squared = 1 - ss_res/ss_tot,
+    Correlation = cor(truth, pred),
+    RMSE = Metrics::rmse(truth, pred),
+    MAE  = Metrics::mae(truth, pred)
+  )
 }
 
-# ----------------------------------------------------------------------
-# 1. Base Model Functions
-# ----------------------------------------------------------------------
-feat_names <- setdiff(names(data_imputed), c("age", "sex", "f.eid"))
-sex_levels <- unique(data_imputed$sex)
-test_size <- 0.2
+# ---- 3) Base model functions ----
+fit_predict_xgb <- function(train_df, test_df, full_df=NULL, nrounds=500, eta=0.03, max_depth=6){
+  feats <- setdiff(names(train_df), c("age","sex","f.eid"))
+  dtrain <- xgboost::xgb.DMatrix(as.matrix(train_df[, feats]), label=train_df$age)
+  dtest  <- xgboost::xgb.DMatrix(as.matrix(test_df[, feats]), label=test_df$age)
+  model <- xgboost::xgb.train(params=list(objective="reg:squarederror", eta=eta, max_depth=max_depth, eval_metric="rmse"),
+                              data=dtrain, nrounds=nrounds, verbose=0)
+  list(model=model, pred_test=predict(model,dtest), pred_full=if(!is.null(full_df)) predict(model, xgboost::xgb.DMatrix(as.matrix(full_df[, feats]))) else NULL)
+}
 
-# Placeholder for final predictions
-metaboage_all_predictions <- data.frame(
-    f.eid = data_imputed$f.eid,
-    sex = data_imputed$sex,
-    age = data_imputed$age,
-    MetaboAge_XGB = NA_real_,
-    MetaboAge_LGB = NA_real_,
-    MetaboAge_CatBoost = NA_real_
-)
+fit_predict_lgb <- function(train_df, test_df, full_df=NULL, nrounds=1000, learning_rate=0.03, num_leaves=31){
+  feats <- setdiff(names(train_df), c("age","sex","f.eid"))
+  dtrain <- lightgbm::lgb.Dataset(as.matrix(train_df[, feats]), label=train_df$age)
+  val <- list(valid=lightgbm::lgb.Dataset(as.matrix(test_df[, feats]), label=test_df$age))
+  params <- list(objective="regression", metric="rmse", learning_rate=learning_rate, num_leaves=num_leaves)
+  model <- lightgbm::lgb.train(params, dtrain, nrounds=nrounds, valids=val, early_stopping_rounds=25, verbose=-1)
+  list(model=model, pred_test=predict(model, as.matrix(test_df[, feats])), pred_full=if(!is.null(full_df)) predict(model, as.matrix(full_df[, feats])) else NULL)
+}
+
+fit_predict_cat <- function(train_df, test_df, full_df=NULL, iterations=500, learning_rate=0.03, depth=6){
+  if(!requireNamespace("catboost", quietly=TRUE)){ warning("CatBoost not available"); return(list(model=NULL, pred_test=rep(NA,nrow(test_df)), pred_full=if(!is.null(full_df)) rep(NA,nrow(full_df)) else NULL)) }
+  feats <- setdiff(names(train_df), c("age","sex","f.eid"))
+  pool_train <- catboost::catboost.load_pool(as.matrix(train_df[, feats]), label=train_df$age)
+  pool_test  <- catboost::catboost.load_pool(as.matrix(test_df[, feats]), label=test_df$age)
+  params <- list(loss_function="RMSE", iterations=iterations, learning_rate=learning_rate, depth=depth, od_type="Iter", od_wait=25, verbose=FALSE)
+  model <- catboost::catboost.train(pool_train, pool_test, params=params)
+  list(model=model, pred_test=catboost::catboost.predict(model,pool_test), pred_full=if(!is.null(full_df)) catboost::catboost.predict(model, catboost::catboost.load_pool(as.matrix(full_df[, feats]))) else NULL)
+}
+
+# ---- 4) Holdout Split (70/30) ----
+train_index <- sample(seq_len(nrow(data_imputed)), size = floor(0.7 * nrow(data_imputed)))
+train_data <- data_imputed[train_index, ]
+test_data  <- data_imputed[-train_index, ]
+
+# ---- 5) Run sex-stratified base models ----
+sex_levels <- levels(data_imputed$sex)
+metaboage_all_predictions <- data_imputed %>% dplyr::select(f.eid, sex, age) %>%
+  dplyr::mutate(MetaboAge_XGB=NA_real_, MetaboAge_LGB=NA_real_, MetaboAge_CatBoost=NA_real_, MetaboAge_Stack=NA_real_)
 test_metrics_all <- list()
 
-# Function to fit and predict one base model
-fit_predict_base <- function(dat, model_name) {
-    idx_train <- sample(1:nrow(dat), floor((1 - test_size) * nrow(dat)))
-    train <- dat[idx_train, ]
-    test <- dat[-idx_train, ]
-    
-    dtrain_mat <- as.matrix(train[, feat_names])
-    dtest_mat <- as.matrix(test[, feat_names])
-    dfull_mat <- as.matrix(dat[, feat_names])
-    
-    pred_test <- rep(NA_real_, nrow(test))
-    pred_full <- rep(NA_real_, nrow(dat))
-
-    if (model_name == "XGBoost") {
-        dtrain <- xgboost::xgb.DMatrix(dtrain_mat, label = train$age)
-        mod <- xgboost::xgb.train(params = list(objective = "reg:squarederror", eta = 0.03, max_depth = 6),
-                                  data = dtrain, nrounds = 500, verbose = 0)
-        pred_test <- predict(mod, dtest_mat)
-        pred_full <- predict(mod, dfull_mat)
-        
-    } else if (model_name == "LightGBM") {
-        dtrain <- lightgbm::lgb.Dataset(dtrain_mat, label = train$age)
-        params <- list(objective = "regression", learning_rate = 0.03, num_leaves = 31, verbose = -1)
-        mod <- lightgbm::lgb.train(params = params, data = dtrain, nrounds = 500, verbose = -1)
-        pred_test <- predict(mod, dtest_mat)
-        pred_full <- predict(mod, dfull_mat)
-        
-    } else if (model_name == "CatBoost" && requireNamespace("catboost", quietly = TRUE)) {
-        train_pool <- catboost.load_pool(data = dtrain_mat, label = train$age)
-        params <- list(loss_function = 'RMSE', iterations = 500, learning_rate = 0.03, depth = 8, random_seed = 123, verbose = FALSE)
-        mod <- catboost.train(train_pool, params = params)
-        pred_test <- catboost.predict(mod, dtest_mat)
-        pred_full <- catboost.predict(mod, dfull_mat)
-        
-    } else {
-        message(paste("Skipping", model_name, "for sex", dat$sex[1], "- package missing or model unsupported."))
-        return(NULL)
-    }
-
-    # Store test metrics
-    metrics <- calc_metrics(test$age, pred_test)
-    metrics$Sex <- dat$sex[1]
-    metrics$Model <- model_name
-    
-    return(list(pred_full = pred_full, metrics = metrics))
+for(s in sex_levels){
+  train_s <- train_data %>% filter(sex==s)
+  test_s  <- test_data %>% filter(sex==s)
+  if(nrow(train_s)<5) next
+  
+  xgb_res <- fit_predict_xgb(train_s, test_s, full_df=data_imputed %>% filter(sex==s))
+  metaboage_all_predictions$MetaboAge_XGB[metaboage_all_predictions$sex==s] <- xgb_res$pred_full
+  test_metrics_all <- append(test_metrics_all, list(calc_metrics(test_s$age, xgb_res$pred_test) %>% mutate(Sex=s, Model="XGBoost")))
+  
+  lgb_res <- fit_predict_lgb(train_s, test_s, full_df=data_imputed %>% filter(sex==s))
+  metaboage_all_predictions$MetaboAge_LGB[metaboage_all_predictions$sex==s] <- lgb_res$pred_full
+  test_metrics_all <- append(test_metrics_all, list(calc_metrics(test_s$age, lgb_res$pred_test) %>% mutate(Sex=s, Model="LightGBM")))
+  
+  cat_res <- fit_predict_cat(train_s, test_s, full_df=data_imputed %>% filter(sex==s))
+  metaboage_all_predictions$MetaboAge_CatBoost[metaboage_all_predictions$sex==s] <- cat_res$pred_full
+  test_metrics_all <- append(test_metrics_all, list(calc_metrics(test_s$age, cat_res$pred_test) %>% mutate(Sex=s, Model="CatBoost")))
 }
 
-# ----------------------------------------------------------------------
-# 2. Run Base Models (Sex-Stratified)
-# ----------------------------------------------------------------------
-for (s in sex_levels) {
-    dat <- data_imputed %>% filter(sex == s)
-    if (nrow(dat) < 50) { next }
-    
-    # 2.1 XGBoost
-    res_xgb <- fit_predict_base(dat, "XGBoost")
-    if(!is.null(res_xgb)) {
-        metaboage_all_predictions$MetaboAge_XGB[metaboage_all_predictions$sex == s] <- res_xgb$pred_full
-        test_metrics_all <- append(test_metrics_all, list(res_xgb$metrics))
-    }
-    
-    # 2.2 LightGBM
-    res_lgb <- fit_predict_base(dat, "LightGBM")
-    if(!is.null(res_lgb)) {
-        metaboage_all_predictions$MetaboAge_LGB[metaboage_all_predictions$sex == s] <- res_lgb$pred_full
-        test_metrics_all <- append(test_metrics_all, list(res_lgb$metrics))
-    }
-    
-    # 2.3 CatBoost
-    res_cat <- fit_predict_base(dat, "CatBoost")
-    if(!is.null(res_cat)) {
-        metaboage_all_predictions$MetaboAge_CatBoost[metaboage_all_predictions$sex == s] <- res_cat$pred_full
-        test_metrics_all <- append(test_metrics_all, list(res_cat$metrics))
-    }
-}
-
-test_metrics_base <- bind_rows(test_metrics_all)
 message("Base Model Test Metrics:")
-print(test_metrics_base)
+print(bind_rows(test_metrics_all))
 
-# ----------------------------------------------------------------------
-# 3. Stacked Model (Elastic Net Meta-Learner)
-# ----------------------------------------------------------------------
-
-# 3.1 Split the base predictions into train/test sets for the stack
-# Use the same split index to maintain consistency
-train_index <- sample(seq_len(nrow(metaboage_all_predictions)), size = 0.8 * nrow(metaboage_all_predictions))
-train_df <- metaboage_all_predictions[train_index, ]
-test_df  <- metaboage_all_predictions[-train_index, ]
-base_features <- c("MetaboAge_XGB", "MetaboAge_LGB", "MetaboAge_CatBoost")
+# ---- 6) Stacked Elastic Net Meta-Learner ----
 stacking_results <- list()
-
-for (s in sex_levels) {
-    train_sex <- train_df %>% filter(sex == s)
-    test_sex  <- test_df %>% filter(sex == s)
-    
-    if (nrow(train_sex) == 0 || any(is.na(train_sex[, base_features]))) { next }
-
-    # Prepare matrices for glmnet
-    x_train <- as.matrix(train_sex[, base_features])
-    y_train <- train_sex$age
-    x_test  <- as.matrix(test_sex[, base_features])
-    
-    # Cross-validated elastic net (alpha = 0.5)
-    cv_model <- cv.glmnet(x_train, y_train, alpha = 0.5, nfolds = 5)
-    meta_model <- glmnet(x_train, y_train, alpha = 0.5, lambda = cv_model$lambda.min)
-    
-    # Predict on test set
-    pred_test_stack <- predict(meta_model, newx = x_test, s = cv_model$lambda.min)
-    
-    # Evaluate test metrics
-    metrics <- calc_metrics(test_sex$age, as.vector(pred_test_stack))
-    metrics$Sex <- s
-    metrics$Model <- "Stacked_ElasticNet"
-    stacking_results <- append(stacking_results, list(metrics))
-    
-    # Predict MetaboAge_Stack for full dataset for this sex
-    full_idx <- which(metaboage_all_predictions$sex == s)
-    x_full <- as.matrix(metaboage_all_predictions[full_idx, base_features])
-    metaboage_all_predictions$MetaboAge_Stack[full_idx] <- predict(meta_model, newx = x_full, s = cv_model$lambda.min)
+base_feats <- c("MetaboAge_XGB","MetaboAge_LGB","MetaboAge_CatBoost")
+for(s in sex_levels){
+  train_s <- train_data %>% filter(sex==s)
+  test_s  <- test_data %>% filter(sex==s)
+  valid_idx <- rowSums(is.na(train_s[, base_feats]))==0
+  train_s <- train_s[valid_idx,]; if(nrow(train_s)<5) next
+  
+  x_train <- as.matrix(train_s[, base_feats]); y_train <- train_s$age
+  x_test  <- as.matrix(test_s[, base_feats])
+  cv <- glmnet::cv.glmnet(x_train, y_train, alpha=0.5, nfolds=5)
+  meta_mod <- glmnet::glmnet(x_train, y_train, alpha=0.5, lambda=cv$lambda.min)
+  
+  metaboage_all_predictions$MetaboAge_Stack[metaboage_all_predictions$sex==s] <- predict(meta_mod, newx=as.matrix(metaboage_all_predictions[metaboage_all_predictions$sex==s, base_feats]), s=cv$lambda.min)
+  stacking_results <- append(stacking_results, list(calc_metrics(test_s$age, as.vector(predict(meta_mod,x_test,s=cv$lambda.min))) %>% mutate(Sex=s, Model="Stacked_ElasticNet")))
 }
 
 stacking_summary <- bind_rows(stacking_results)
 message("Stacked Model Test Metrics:")
 print(stacking_summary)
 
-# ----------------------------------------------------------------------
-# 4. Final Evaluation and Visualization
-# ----------------------------------------------------------------------
-
-# Calculate overall statistics for the plot
+# ---- 7) Final Evaluation and Visualization ----
 chron_age <- metaboage_all_predictions$age
 pred_age  <- metaboage_all_predictions$MetaboAge_Stack
-
-correlation <- cor(chron_age, pred_age, use = "complete.obs")
-r_squared   <- correlation^2 
-mae_value   <- Metrics::mae(chron_age, pred_age)
-rmse_value  <- Metrics::rmse(chron_age, pred_age)
-
-# Create the label string for the title
 plot_title <- paste0(
-    "Chronological Age vs MetaboAge (Stacked Model)",
-    "\nCorrelation: ", round(correlation, 3),
-    " | R-squared: ", round(r_squared, 3),
-    " | MAE: ", round(mae_value, 3),
-    " | RMSE: ", round(rmse_value, 3)
+  "Chronological Age vs MetaboAge (Stacked Model, 70/30 Holdout)\n",
+  "Correlation: ", round(cor(chron_age,pred_age,use="complete.obs"),3),
+  " | R-squared: ", round(cor(chron_age,pred_age,use="complete.obs")^2,3),
+  " | MAE: ", round(Metrics::mae(chron_age,pred_age),3),
+  " | RMSE: ", round(Metrics::rmse(chron_age,pred_age),3)
 )
 
-# Scatter plot
-p <- metaboage_all_predictions %>%
-    ggplot(aes(x = age, y = MetaboAge_Stack)) +
-    
-    # Add jittered points
-    geom_point(
-        size = 0.5,
-        alpha = 0.8,
-        color = "#0072B2", 
-        position = position_jitter(width = 0.3, height = 0)
-    ) +
-    
-    # Add the diagonal line (y=x) for perfect agreement
-    geom_abline(intercept = 0, slope = 1, color = "black", linewidth = 1.2) +
-    
-    # Set axis labels and the title
-    labs(
-        title = plot_title,
-        x = "Chronological Age",
-        y = "MetaboAge (Predicted Age)"
-    ) +
-    
-    # Customize the appearance
-    theme_classic(base_size = 14) +
-    theme(
-        plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
-        axis.title = element_text(face = "bold"),
-        axis.text = element_text(color = "black")
-    ) +
-    
-    # Set scales (adjust limits/breaks as appropriate for your data range)
-    scale_x_continuous(limits = c(38, 72), breaks = seq(40, 70, by = 5)) +
-    scale_y_continuous(limits = c(38, 72), breaks = seq(40, 70, by = 5))
-
+p <- ggplot(metaboage_all_predictions, aes(x=age, y=MetaboAge_Stack)) +
+  geom_point(size=0.5, alpha=0.8, color="#0072B2", position=position_jitter(width=0.3,height=0)) +
+  geom_abline(intercept=0,slope=1,color="black",linewidth=1.2) +
+  labs(title=plot_title, x="Chronological Age", y="MetaboAge (Predicted Age)") +
+  theme_classic(base_size=14) +
+  theme(plot.title=element_text(hjust=0.5,face="bold",size=16),
+        axis.title=element_text(face="bold"),
+        axis.text=element_text(color="black")) +
+  scale_x_continuous(limits=c(38,72), breaks=seq(40,70,5)) +
+  scale_y_continuous(limits=c(38,72), breaks=seq(40,70,5))
 print(p)
 
 # Save final predictions
-write.csv(metaboage_all_predictions, "metaboage_all_predictions_stacked.csv", row.names = FALSE)
+write.csv(metaboage_all_predictions, "metaboage_all_predictions_stacked.csv", row.names=FALSE)
