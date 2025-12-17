@@ -1,46 +1,112 @@
-# MetaboAge: Metabolomic Aging Clock
+# MetaboAge: Metabolomic Aging Clock (UK Biobank NMR)
 
-This repository contains the code and workflow for constructing the Metabolomic Aging Clock (**MetaboAge**) using **184 NMR-based metabolic features** and **Stacked Ensemble models** in the UK Biobank.
+This repository contains the code and workflow to construct **MetaboAge**, a metabolomic aging clock trained on **184 NMR-based metabolic features** from the UK Biobank and built using a **sex-stratified stacked ensemble** framework.
 
-## Overview
+MetaboAge outputs a *predicted biological age* from metabolomics and can be used to derive **metabolomic age acceleration** (MetaboAge − chronological age) for downstream analyses.
 
-- **Normalization**: Box-Cox transformation to address skewed distributions.
-- **Missing Value Imputation**: k-Nearest Neighbors (k=10).
-- **Outlier Detection**: Mahalanobis distance in PCA space.
-- **Modeling**: Stacked ensemble (XGBoost, LightGBM, CatBoost) with Elastic Net (α = 0.5) Regression as a meta-learner.
-- **Sex-wise Modeling**: Separate models for Men and Women, addressing sex-specific metabolic aging rates. 
+---
 
-## Files
+## What this repo implements (methodology)
 
-- `MetaboAge_feature_selection.R`: Feature selection and preprocessing.
-- `MetaboAge_imputation.R`: KNN imputation for missing values.
-- `MetaboAge_outlier_detection.R`: Outlier detection and exclusion.
-- `MetaboAge_stacked_model.R`: Main models training and evaluation separately for Women and Men.
-- `README.md`: This file.
-- `LICENSE`: License
+MetaboAge is trained using the following pipeline:
 
-## How to Use
+1. **Normalization / Transformation**
+   - **Box–Cox transformation** to reduce skewness and improve model fit.
 
-1. Prepare your metabolomics data in R.
-2. Run the scripts in order as listed above.
-3. Follow the instructions and comments in each script for detailed steps and configuration.
+2. **Missing value handling**
+   - **k-Nearest Neighbors (KNN) imputation with k = 10**.
 
-## Sensitivity Analysis
+3. **Outlier detection**
+   - **Mahalanobis distance** using a **robust covariance estimator** (outliers are excluded prior to training).
+   - (Implementation may use PCA space depending on the script version; the key requirement is robust Mahalanobis-based flagging.)
 
-1. Compared stacked ensemble vs. single models (XGBoost, LightGBM, CatBoost).
-2. Stacked ensemble consistently achieved highest correlation and lowest RMSE/MAE across sexes.
-3. Details and results are provided in Table S1 of the manuscript. 
+4. **Modeling**
+   - **Stacked ensemble** with base learners:
+     - XGBoost
+     - LightGBM
+     - CatBoost
+   - **Elastic Net regression** as the meta-learner (**alpha = 0.5**).
 
+5. **Sex-stratified modeling**
+   - Separate models are trained for **Women** and **Men** to account for sex-specific metabolic aging patterns.
+
+---
+
+## Leakage-safe training for downstream ADRD prediction (recommended)
+
+If you are using MetaboAge as a predictor in ADRD (or any downstream outcome model), we recommend:
+
+1. **Split the analytic cohort first** (e.g., 70/30 train/test at the cohort level).
+2. Train MetaboAge **only within the training set**.
+3. Use **K-fold cross-validation within the training set** to generate **out-of-fold (OOF) MetaboAge predictions** for each training participant.
+4. Fit the final MetaboAge models on the full training set and generate predictions for the held-out test set.
+
+---
+
+## Expected performance (sanity checks)
+
+On the MetaboAge development dataset, MetaboAge typically achieves:
+
+- **Correlation with chronological age**: ~0.74  
+- **RMSE**: ~5.3 years  
+
+In sensitivity analyses, the **stacked ensemble** consistently outperforms single base learners (XGBoost, LightGBM, CatBoost) across sexes in correlation and error metrics.
+
+(See the associated manuscript supplementary results for details.)
+
+---
+
+## Repository structure
+
+### Main scripts
+
+- `MetaboAge_feature_selection.R`  
+  Feature selection and preprocessing setup (including feature list management and transformations).
+
+- `MetaboAge_imputation.R`  
+  Missing value imputation using KNN (k=10).
+
+- `MetaboAge_outlier_detection.R`  
+  Robust Mahalanobis-based outlier detection and exclusion.
+
+- `MetaboAge_stacked_model.R`  
+  Sex-stratified stacked ensemble training, evaluation, and model saving.
+
+### Other files
+
+- `README.md`  
+  This documentation.
+
+- `LICENSE`  
+  MIT License.
+
+---
+
+## Input data requirements
+
+You must provide metabolomics data in a tabular format containing:
+
+- Unique participant identifier (recommended)
+- **Chronological age** (years)
+- **Sex** (coded consistently; e.g., “Female/Male” or 0/1)
+- **184 NMR metabolic features** (columns)
+
+> Note: UK Biobank data cannot be redistributed. This repository does not include any raw UKB data.
+
+---
+
+## Quickstart
+
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/shayanmostafaei/Metabolomic-Aging-Clock-MetaboAge-
+   cd Metabolomic-Aging-Clock-MetaboAge- 
 
 ## Reference
 
 If you use this code, please cite:
 
 > Mostafaei S, et al. (2025) "Precision Prediction of Alzheimer's Disease and Related Dementias Using Integrative Multi-Omics Aging Clocks and Genetic Data" [Manuscript].  
-
-## License
-
-This project is licensed under the MIT License
 
 ## Contact
 
