@@ -29,7 +29,7 @@ SEX_COL <- "sex"
 AGE_COL <- "age"
 
 # KNN settings
-K_IMPUTE <- 10
+K_IMPUTE <- 9
 
 # --------------------------
 # LOAD DATA (AFTER STEP 1)
@@ -67,7 +67,7 @@ imputation_summary_before <- data.frame(
 )
 
 # --------------------------
-# KNN IMPUTATION (k = 10)
+# KNN IMPUTATION (k = 9)
 # NOTE: VIM::kNN appends indicator columns by default.
 # We set imp_var = FALSE so output stays clean/professional.
 # --------------------------
