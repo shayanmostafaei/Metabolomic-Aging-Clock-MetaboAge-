@@ -14,7 +14,7 @@ MetaboAge is trained using the following pipeline:
    - **Box–Cox transformation** to reduce skewness and improve model fit.
 
 2. **Missing value handling**
-   - **k-Nearest Neighbors (KNN) imputation with k = 10**.
+   - **k-Nearest Neighbors (KNN) imputation with k = 9**.
 
 3. **Outlier detection**
    - **Mahalanobis distance** using a **robust covariance estimator** (outliers are excluded prior to training).
@@ -38,7 +38,7 @@ If you are using MetaboAge as a predictor in ADRD (or any downstream outcome mod
 
 1. **Split the analytic cohort first** (e.g., 70/30 train/test at the cohort level).
 2. Train MetaboAge **only within the training set**.
-3. Use **K-fold cross-validation within the training set** to generate **out-of-fold (OOF) MetaboAge predictions** for each training participant.
+3. Use **5-fold cross-validation within the training set** to generate **out-of-fold (OOF) MetaboAge predictions** for each training participant.
 4. Fit the final MetaboAge models on the full training set and generate predictions for the held-out test set.
 
 ---
