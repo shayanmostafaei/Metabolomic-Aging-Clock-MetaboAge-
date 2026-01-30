@@ -64,7 +64,7 @@ In sensitivity analyses, the **stacked ensemble** consistently outperforms singl
   Feature selection and preprocessing setup (including feature list management and transformations).
 
 - `MetaboAge_imputation.R`  
-  Missing value imputation using KNN (k=10).
+  Missing value imputation using KNN (k=9).
 
 - `MetaboAge_outlier_detection.R`  
   Robust Mahalanobis-based outlier detection and exclusion.
