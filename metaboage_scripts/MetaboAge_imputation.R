@@ -1,6 +1,6 @@
 # ============================================================
 # MetaboAge_imputation.R
-# Missing value imputation using KNN (k = 10)
+# Missing value imputation using KNN (k = 9)
 # Input  : results/metaboage_step1_feature_selection/metaboage_step1_boxcox.rds
 # Output : results/metaboage_step2_imputation/metaboage_step2_imputed.rds
 # Used by: MetaboAge_outlier_detection.R
